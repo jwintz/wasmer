@@ -618,8 +618,12 @@ else
 endif
 
 build-capi-headless-ios:
-	CARGO_TARGET_DIR=target/$(CARGO_TARGET)/headless RUSTFLAGS="${RUSTFLAGS} -C panic=abort" cargo lipo --manifest-path lib/c-api/Cargo.toml --release \
+	CARGO_TARGET_DIR=target/$(CARGO_TARGET)/headless RUSTFLAGS="${RUSTFLAGS} -C panic=abort" cargo build --manifest-path lib/c-api/Cargo.toml --release --target aarch64-apple-ios \
 		--no-default-features --features compiler-headless,wasi,webc_runner
+
+build-capi-ios:
+	RUSTFLAGS="${RUSTFLAGS} -C panic=abort" cargo build --manifest-path lib/c-api/Cargo.toml --release --target aarch64-apple-ios \
+		--no-default-features --features wat,compiler-headless,wasi,webc_runner
 
 #####
 #
@@ -929,6 +933,42 @@ package-docs: build-docs build-docs-capi
 	echo '<meta http-equiv="refresh" content="0; url=wasmer/index.html">' > package/docs/crates/index.html
 
 package: package-wasmer package-minimal-headless-wasmer package-capi
+
+package-ios: build-capi-ios build-capi-headless-ios
+	mkdir -p "package/include"
+	mkdir -p "package/lib"
+	mkdir -p "package/winsdk"
+
+	cp lib/c-api/wasmer.h* package/include
+	cp lib/c-api/wasmer_wasm.h* package/include
+	cp lib/c-api/tests/wasm-c-api/include/wasm.h* package/include
+	cp lib/c-api/README.md package/include/README.md
+
+	# Copy iOS libraries
+	if [ -f target/$(CARGO_TARGET)/release/libwasmer.dylib ]; then \
+		cp target/$(CARGO_TARGET)/release/libwasmer.dylib package/lib/libwasmer.dylib ;\
+	fi
+	if [ -f target/$(CARGO_TARGET)/release/libwasmer.a ]; then \
+		cp target/$(CARGO_TARGET)/release/libwasmer.a package/lib/libwasmer.a ;\
+	fi
+
+	# Copy iOS headless libraries
+	if [ -f target/$(CARGO_TARGET)/headless/$(CARGO_TARGET)/release/libwasmer.dylib ]; then \
+		cp target/$(CARGO_TARGET)/headless/$(CARGO_TARGET)/release/libwasmer.dylib package/lib/libwasmer-headless.dylib ;\
+	fi
+	if [ -f target/$(CARGO_TARGET)/headless/$(CARGO_TARGET)/release/libwasmer.a ]; then \
+		cp target/$(CARGO_TARGET)/headless/$(CARGO_TARGET)/release/libwasmer.a package/lib/libwasmer-headless.a ;\
+	fi
+
+	# iOS-specific packaging - only includes C API libraries and headers
+	# No standalone binaries are included for iOS builds
+
+distribution-ios: package-ios
+	cp LICENSE package/LICENSE
+	cp docs/ATTRIBUTIONS.md package/ATTRIBUTIONS
+	mkdir -p dist
+	tar -C package -zcvf wasmer.tar.gz lib include LICENSE ATTRIBUTIONS
+	mv wasmer.tar.gz dist/
 
 tar-capi:
 	ls -R package

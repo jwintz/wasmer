@@ -100,6 +100,17 @@ jobs:
             enable_v8: false
             enable_wasmi: true
             enable_wamr: false
+          - build: ios-arm64
+            os: macos-14
+            target: aarch64-apple-ios
+            artifact_name: "wasmer-ios-arm64"
+            use_sccache: false
+            build_wasm: false
+            enable_llvm: false
+            enable_v8: false
+            enable_wasmi: true
+            enable_wamr: true
+            ios_build: true
             #- build: linux-musl-x64
             #  os: ubuntu-22.04
             #  artifact_name: 'wasmer-linux-musl-amd64'
@@ -159,6 +170,14 @@ jobs:
         with:
           toolchain: ${{ env.MSRV }}
           target: ${{ matrix.target }}
+      - name: Install iOS targets
+        if: matrix.ios_build
+        run: |
+          rustup target add aarch64-apple-ios
+      - name: Install cargo-lipo for iOS builds
+        if: matrix.ios_build
+        run: |
+          cargo install cargo-lipo
       - uses: Swatinem/rust-cache@v2
         if: ${{ matrix.use_sccache != true && matrix.use_rustcache != false }}
       - name: Install LLVM (macOS Apple Silicon)
@@ -253,13 +272,21 @@ jobs:
       - name: Build C API headless
         shell: bash
         run: |
-          LLVM_CONFIG_PATH=/usr/bin/llvm-config-18 make package-capi-headless
+          if [ "${{ matrix.ios_build }}" = "true" ]; then
+            make build-capi-headless-ios
+          else
+            LLVM_CONFIG_PATH=/usr/bin/llvm-config-18 make package-capi-headless
+          fi
       - name: Build C API
         shell: bash
         run: |
-          LLVM_CONFIG_PATH=/usr/bin/llvm-config-18 make build-capi
+          if [ "${{ matrix.ios_build }}" = "true" ]; then
+            make build-capi-ios
+          else
+            LLVM_CONFIG_PATH=/usr/bin/llvm-config-18 make build-capi
+          fi
       - name: Build Wasmer binary
-        if: ${{ !startsWith(matrix.build, 'linux-x64') && !startsWith(matrix.build, 'linux-musl') }}
+        if: ${{ !startsWith(matrix.build, 'linux-x64') && !startsWith(matrix.build, 'linux-musl') && !matrix.ios_build }}
         shell: bash
         run: |
           make build-wasmer
@@ -307,7 +334,7 @@ jobs:
           target: ${{ matrix.target }}
           components: "rust-src"
       - name: Build Minimal Wasmer Headless
-        if: ${{ !startsWith(matrix.build, 'linux-musl-x64') }}
+        if: ${{ !startsWith(matrix.build, 'linux-musl-x64') && !matrix.ios_build }}
         run: |
           echo "" >> Cargo.toml
           echo "[profile.release]" >> Cargo.toml
@@ -323,7 +350,11 @@ jobs:
           make build-wasmer-headless-minimal
       - name: Dist
         run: |
-          make distribution
+          if [ "${{ matrix.ios_build }}" = "true" ]; then
+            make distribution-ios
+          else
+            make distribution
+          fi
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -626,4 +657,13 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: artifacts/wasmer-darwin-arm64/wasmer.tar.gz
           asset_name: wasmer-darwin-arm64.tar.gz
+          asset_content_type: application/gzip
+      - name: Upload Release Asset iOS arm64
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/wasmer-ios-arm64/wasmer.tar.gz
+          asset_name: wasmer-ios-arm64.tar.gz
           asset_content_type: application/gzip
